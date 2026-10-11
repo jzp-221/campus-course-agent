@@ -1,0 +1,37 @@
+[
+  {
+    "file": "P11-documents-upload.jpg",
+    "description": "一次真实HTTP请求上传两份测试资料后的列表，4份演示资料仍各7块",
+    "captured_at": "2026-10-10 22:13:55 +08:00"
+  },
+  {
+    "file": "P11-document-preview.jpg",
+    "description": "预览新测试文档54的真实抽取文本",
+    "captured_at": "2026-10-10 22:14:25 +08:00"
+  },
+  {
+    "file": "P11-document-reindex.jpg",
+    "description": "重新入库测试文档54前的二次确认，表格该行按钮已禁用",
+    "captured_at": "2026-10-10 22:19:22 +08:00"
+  },
+  {
+    "file": "P11-document-delete-confirm.jpg",
+    "description": "删除本轮测试文档54的二次确认，明确同步清理全部向量",
+    "captured_at": "2026-10-10 22:20:18 +08:00"
+  },
+  {
+    "file": "P11-document-delete.jpg",
+    "description": "两份本轮测试文档删除后恢复4份演示资料，各7个分块",
+    "captured_at": "2026-10-10 22:21:14 +08:00"
+  },
+  {
+    "file": "P11-document-bad-batch.jpg",
+    "description": "正常md混入PNG，整批上传按钮禁用并展示具体文件名与格式原因",
+    "captured_at": "2026-10-10 22:26:22 +08:00"
+  },
+  {
+    "file": "P11-student-permission.jpg",
+    "description": "学生aaa直接访问文档路由被重定向首页，菜单与文档内容均不可见",
+    "captured_at": "2026-10-10 22:27:48 +08:00"
+  }
+]

@@ -1,0 +1,10 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+uploads/
+chroma_data/
+private_documents/
+backups/course_merges/
+backups/demo_schedules/

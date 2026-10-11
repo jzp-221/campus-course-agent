@@ -1,0 +1,56 @@
+# Local configuration; only the documented placeholder template is shared.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Dependencies and generated files.
+.venv/
+venv/
+node_modules/
+dist/
+dist-ssr/
+coverage/
+__pycache__/
+*.py[cod]
+*.log
+logs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.tsbuildinfo
+
+# Private runtime data and local backups.
+uploads/
+private_documents/
+chroma_data/
+backups/
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.pem
+*.key
+
+# Original documents and local verification exports stay on this machine.
+backend/docs/demo/
+backend/docs/*验收记录/
+backend/docs/*真实接口*.json
+frontend/docs/*records.json
+backend/docs/screenshots/*manifest.json
+# This screenshot includes an excerpt from a private course document.
+backend/docs/screenshots/P13-course-detail.jpg
+
+# Legacy SQL contains contact details and password hashes; use the safe example.
+sql/backend.sql
+
+# OS/editor and packaged artifacts.
+.DS_Store
+._*
+.idea/
+*.swp
+*.zip
+*.dmg
+*.pkg
+*.tar
+*.tar.gz
