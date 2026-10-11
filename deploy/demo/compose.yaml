@@ -1,0 +1,175 @@
+name: campus-public-demo
+
+x-app-environment: &app-environment
+  TZ: Asia/Shanghai
+  DEMO_DEPLOYMENT: "true"
+  DEMO_SEED_TARGET: isolated-compose
+  DATABASE_URL: ${DATABASE_URL:?Set an independent demo DATABASE_URL in deploy/demo/demo.env}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set a new random demo JWT_SECRET_KEY}
+  JWT_EXPIRE_HOURS: "2"
+  DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?Set a separate demo administrator password}
+  DEMO_STUDENT_PASSWORD: ${DEMO_STUDENT_PASSWORD:?Set a separate public demonstration password}
+  DEMO_INDEX_DOCUMENTS: ${DEMO_INDEX_DOCUMENTS:-false}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+  LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+  LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
+  AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-4}
+  EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+  EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+  CHROMA_DIR: /app/backend/chroma_data
+  RAG_CANDIDATE_COUNT: "8"
+  CORS_ORIGINS: ${DEMO_CORS_ORIGINS:-}
+  SEMESTER_START_DATE: "2026-09-07"
+  TOTAL_WEEKS: "20"
+  MCP_PORT: "8001"
+  MCP_PATH: /mcp
+  DEMO_AI_PER_MINUTE: ${DEMO_AI_PER_MINUTE:-3}
+  DEMO_AI_PER_USER_DAY: ${DEMO_AI_PER_USER_DAY:-20}
+  DEMO_AI_GLOBAL_DAY: ${DEMO_AI_GLOBAL_DAY:-60}
+  DEMO_AI_CONCURRENCY: ${DEMO_AI_CONCURRENCY:-2}
+  DEMO_AI_TIMEOUT_SECONDS: ${DEMO_AI_TIMEOUT_SECONDS:-90}
+  DEMO_MAX_OUTPUT_TOKENS: ${DEMO_MAX_OUTPUT_TOKENS:-700}
+  DEMO_QUOTA_PATH: /app/demo_state/quota.sqlite3
+
+x-app-service: &app-service
+  image: campus-public-demo-backend:local
+  build:
+    context: ../..
+    dockerfile: deploy/demo/backend.Dockerfile
+  read_only: true
+  tmpfs:
+    - /tmp:rw,nosuid,noexec,size=256m
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  volumes:
+    - demo_uploads:/app/backend/uploads
+    - demo_documents:/app/backend/private_documents
+    - demo_chroma:/app/backend/chroma_data
+  networks: [data, application]
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_DATABASE: campus_demo
+      MYSQL_USER: campus_demo
+      MYSQL_PASSWORD: ${DEMO_DB_PASSWORD:?Set a new demo database password}
+      MYSQL_ROOT_PASSWORD: ${DEMO_DB_ROOT_PASSWORD:?Set a new independent MySQL root password}
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci]
+    volumes:
+      - demo_mysql:/var/lib/mysql
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_PASSWORD" mysqladmin ping --silent -h 127.0.0.1 -u "$$MYSQL_USER"']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  init:
+    <<: *app-service
+    restart: "no"
+    environment:
+      <<: *app-environment
+      MCP_HOST: mcp
+    command: [python, -m, deploy.demo.seed]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  mcp:
+    <<: *app-service
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      MCP_HOST: 0.0.0.0
+    command: [python, -m, deploy.demo.mcp]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, -m, deploy.demo.health, mcp]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  api:
+    <<: *app-service
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      MCP_HOST: mcp
+    volumes:
+      - demo_uploads:/app/backend/uploads
+      - demo_documents:/app/backend/private_documents
+      - demo_chroma:/app/backend/chroma_data
+      - demo_state:/app/demo_state
+    # API has no published host port; only our Caddy forwards public requests.
+    # Caddy overwrites untrusted X-Forwarded-* before reaching this private service.
+    command: [python, -m, uvicorn, deploy.demo.app:app, --host, 0.0.0.0, --port, "8000", --workers, "1", --no-access-log, --proxy-headers, --forwarded-allow-ips, "*"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      mcp:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -m, deploy.demo.health, api]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  web:
+    image: campus-public-demo-web:local
+    build:
+      context: ../..
+      dockerfile: deploy/demo/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      DEMO_SITE_ADDRESS: ${DEMO_SITE_ADDRESS:?Set the public domain, or an explicit http:// demo address}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - demo_caddy_data:/data
+      - demo_caddy_config:/config
+    networks: [application]
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  data:
+    internal: true
+  application: {}
+
+volumes:
+  demo_mysql: {}
+  demo_uploads: {}
+  demo_documents: {}
+  demo_chroma: {}
+  demo_state: {}
+  demo_caddy_data: {}
+  demo_caddy_config: {}

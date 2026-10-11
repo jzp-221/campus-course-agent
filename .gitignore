@@ -4,6 +4,11 @@
 !.env.example
 !.env.*.example
 
+# Independent public-demo runtime credentials and limit counters.
+deploy/demo/demo.env
+deploy/demo/*credentials*
+deploy/demo/*quota*.sqlite*
+
 # Dependencies and generated files.
 .venv/
 venv/

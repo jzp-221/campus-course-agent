@@ -1,0 +1,34 @@
+{$DEMO_SITE_ADDRESS} {
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        -Server
+    }
+
+    # MCP is never published by the public reverse proxy.
+    handle /mcp* {
+        respond "Not Found" 404
+    }
+
+    @backend path /api /api/* /uploads /uploads/*
+    handle @backend {
+        reverse_proxy api:8000 {
+            # text/event-stream responses are flushed immediately by Caddy.
+            # Keep the default interval so browser aborts cancel the upstream;
+            # explicitly negative intervals detach the upstream cancellation.
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 120s
+            }
+        }
+    }
+
+    # Vue history-mode routes resolve to index.html; empty cells/pages retain assets.
+    handle {
+        root * /srv
+        encode zstd gzip
+        try_files {path} /index.html
+        file_server
+    }
+}

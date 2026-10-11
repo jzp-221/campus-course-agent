@@ -1,0 +1,46 @@
+# Allow only files needed to build the isolated public demonstration.
+# In particular, never send the local .env, database or course originals to Docker.
+**
+!backend/
+!backend/requirements.txt
+!backend/app/
+!backend/app/**
+!backend/mcp_server.py
+!frontend/
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/index.html
+!frontend/vite.config.js
+!frontend/jsconfig.json
+!frontend/src/
+!frontend/src/**
+!frontend/public/
+!frontend/public/**
+!deploy/
+!deploy/demo/
+!deploy/demo/**
+
+# Last-match exclusions also apply under an allowed directory.
+**/.env
+**/.env.*
+**/demo.env
+**/demo.env.*
+!deploy/demo/demo.env.example
+**/__pycache__/
+**/*.py[cod]
+**/.DS_Store
+**/*.log
+**/node_modules/
+**/.venv/
+**/uploads/
+**/private_documents/
+**/chroma_data/
+**/backups/
+**/*.db
+**/*.sqlite*
+**/*.dump
+**/*.pem
+**/*.key
+**/*secret*
+**/tests/
+**/README.md
