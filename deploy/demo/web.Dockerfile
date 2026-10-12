@@ -8,6 +8,6 @@ COPY frontend/ ./
 ENV VITE_API_BASE_URL=""
 RUN npm run build
 
-FROM caddy:2-alpine
+FROM caddy:2.11.7-alpine
 COPY deploy/demo/Caddyfile /etc/caddy/Caddyfile
 COPY --from=frontend-build /build/frontend/dist /srv

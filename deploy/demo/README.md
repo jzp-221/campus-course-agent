@@ -1,6 +1,6 @@
 # 独立公网演示部署
 
-本目录把现有 Vue、FastAPI、真实 MCP Streamable-HTTP 与 MySQL 包装为独立的 Docker Compose 环境。它使用新数据库、新密码、新 JWT 和新编的虚构资料，保留本机业务入口与数据。源码公开不等于网站已经上线；需要服务器和域名后才能生成可分享的 HTTPS 链接。
+本目录把现有 Vue、FastAPI、真实 MCP Streamable-HTTP 与 MySQL 包装为独立的 Docker Compose 环境。它使用新数据库、新密码、新 JWT 和新编的虚构资料，保留本机业务入口与数据。源码公开不等于网站已经上线；部署到服务器后，可使用域名或下文的公网 IPv4 证书方案提供可分享的 HTTPS 链接。
 
 ## 平台选择
 
@@ -8,7 +8,7 @@
 
 先按 **2 核 4 GB、40 GB 以上磁盘**估算演示资源；这是项目的工程建议，实际用量需在启动后观察。地区、价格和域名要求以购买页面为准；本部署包没有购买资源。[腾讯云 Docker 镜像官方说明](https://cloud.tencent.com/document/product/1207/60423)
 
-准备一台独立服务器、一个可配置 DNS 的域名，并在服务器防火墙只放行 HTTP/HTTPS 的 80/443（SSH 仅管理员使用）。MySQL 3306、FastAPI 8000、MCP 8001 没有映射到公网。
+准备一台独立服务器。默认配置使用可配置 DNS 的域名；没有域名时可选公网 IPv4 HTTPS。在服务器防火墙放行 HTTP/HTTPS 的 TCP 80/443（SSH 仅管理员使用）。MySQL 3306、FastAPI 8000、MCP 8001 没有映射到公网。
 
 ## 隔离的数据与配置
 
@@ -64,7 +64,124 @@ docker compose --env-file deploy/demo/demo.env -f deploy/demo/compose.yaml logs 
 
 SSE 使用 `Content-Type: text/event-stream` 的默认即时刷新；没有设置负数 `flush_interval`，以保留浏览器断开向上游传播取消的行为。生产环境仍需按上线验收确认“停止生成”后请求被回收。
 
-若只做服务器 IP 的临时连通性测试，可设 `DEMO_SITE_ADDRESS=http://服务器IP`，同时调整 `DEMO_CORS_ORIGINS`；分享登录与 AI 演示前使用上面的域名 HTTPS。
+若只做服务器 IP 的临时连通性测试，可设 `DEMO_SITE_ADDRESS=http://服务器IP`，同时调整 `DEMO_CORS_ORIGINS`；分享登录与 AI 演示前使用域名 HTTPS，或完成下面的公网 IPv4 HTTPS 配置。
+
+## 可选：没有域名时使用公网 IPv4 HTTPS
+
+本次独立演示地址为 **https://43.129.170.247**。仓库的 `Caddyfile` 保留通用域名默认配置；部署到其他 IP 时，把下面配置中的 IP 全部替换为实际公网 IPv4。不要仅把站点地址改成裸 IP：必须显式指定公共 ACME 证书机构，否则 Caddy 的 IP 默认行为可能使用不被浏览器信任的内部证书。
+
+本方案使用固定的 Caddy **2.11.7** 和 Let’s Encrypt `shortlived` 证书档位。IP 证书有效期约 160 小时，由 Caddy 自动续期。首次申请需接受证书机构协议；服务器必须能访问该机构，公网 TCP 80/443 保持可达。[Let’s Encrypt IP 证书说明](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability/)、[Caddy ACME 配置](https://caddyserver.com/docs/caddyfile/directives/tls)、[default_sni](https://caddyserver.com/docs/caddyfile/options#default-sni)。
+
+### 已运行 HTTP 演示的切换步骤
+
+先在服务器项目目录做私有备份。备份含密钥文件，权限必须限制；不要提交 Git、放进部署包或发送给他人。额外保留正在运行的 Web 镜像，供回滚使用。
+
+```bash
+cd /home/ubuntu/campus-course-agent
+umask 077
+campus_https_backup=$(mktemp -d /home/ubuntu/campus-demo-https-backup.XXXXXX)
+chmod 700 "$campus_https_backup"
+cp deploy/demo/Caddyfile deploy/demo/web.Dockerfile deploy/demo/demo.env "$campus_https_backup/"
+chmod 600 "$campus_https_backup"/*
+sudo docker inspect --format '{{.Image}}' campus-public-demo-web-1 > "$campus_https_backup/web-image-id"
+campus_https_rollback_tag="campus-public-demo-web:https-rollback-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+sudo docker tag "$(cat "$campus_https_backup/web-image-id")" "$campus_https_rollback_tag"
+printf '%s\n' "$campus_https_rollback_tag" > "$campus_https_backup/web-image-tag"
+printf '私有备份路径：%s\n' "$campus_https_backup"
+```
+
+把服务器上的 `deploy/demo/Caddyfile` 替换为以下完整配置。新增的是顶部 `default_sni` 和站点内 `tls`；原 API、MCP 隔离、SPA 与 SSE 路由保持一致。`default_sni` 让未发送 SNI 的 IP 客户端也能获得该 IP 的正确证书。
+
+```caddyfile
+{
+    default_sni 43.129.170.247
+}
+
+{$DEMO_SITE_ADDRESS} {
+    tls {
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            profile shortlived
+        }
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        -Server
+    }
+
+    # MCP is never published by the public reverse proxy.
+    handle /mcp* {
+        respond "Not Found" 404
+    }
+
+    @backend path /api /api/* /uploads /uploads/*
+    handle @backend {
+        reverse_proxy api:8000 {
+            # text/event-stream responses are flushed immediately by Caddy.
+            # Keep the default interval so browser aborts cancel the upstream;
+            # explicitly negative intervals detach the upstream cancellation.
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 120s
+            }
+        }
+    }
+
+    # Vue history-mode routes resolve to index.html; empty cells/pages retain assets.
+    handle {
+        root * /srv
+        encode zstd gzip
+        try_files {path} /index.html
+        file_server
+    }
+}
+```
+
+在服务器的 `deploy/demo/demo.env` 中仅调整下面两项，其余密码与 Key 保持原值。不要重新运行 `configure.py`，也不要复制本机业务 `.env`。
+
+```ini
+DEMO_SITE_ADDRESS=https://43.129.170.247
+DEMO_CORS_ORIGINS=https://43.129.170.247
+```
+
+确认腾讯云实例防火墙允许公网 TCP 80/443，随后只构建 Web、校验候选配置，再切换 Web。`caddy validate` 本身不申请证书；正式启动新 Web 才会向证书机构发起请求。
+
+```bash
+sudo docker compose --env-file deploy/demo/demo.env -f deploy/demo/compose.yaml config --quiet
+sudo docker compose --env-file deploy/demo/demo.env -f deploy/demo/compose.yaml build web
+sudo docker run --rm --network none -e DEMO_SITE_ADDRESS=https://43.129.170.247 campus-public-demo-web:local caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sudo docker compose --env-file deploy/demo/demo.env -f deploy/demo/compose.yaml up -d --no-deps --no-build --pull never --force-recreate web
+curl --fail https://43.129.170.247/api/demo/health
+```
+
+证书签发可能需要短暂等待。上述 `curl` 使用系统证书信任校验，预期为 `{"status":"ok","environment":"demo"}`；不要用 `-k` 绕过证书错误。HTTP 请求应返回指向相同 HTTPS 路径的 308 重定向。
+
+HTTPS 成功后，**只重建 API 容器**使新的 CORS 来源生效。普通 `restart api` 不会加载修改后的 Compose 环境变量。MCP 仍通过私有网络的 `http://mcp:8001/mcp` 调用，无需因 HTTPS 重启；这次切换不要运行 `init`、种子或迁移。
+
+```bash
+sudo docker compose --env-file deploy/demo/demo.env -f deploy/demo/compose.yaml up -d --no-deps --no-build --pull never --force-recreate api
+sudo docker compose --env-file deploy/demo/demo.env -f deploy/demo/compose.yaml ps -a
+curl --fail https://43.129.170.247/api/demo/health
+```
+
+已有 `demo_caddy_data` 与 `demo_caddy_config` 命名卷保存证书、账号及续期状态，必须保留并纳入私有备份；不要执行 `down -v`。IP 改变后需同步修改站点、CORS 与 `default_sni` 并申请新 IP 证书。服务器上的 IP 配置应单独备份，未来更新源码时先检查差异，避免被通用域名模板覆盖。
+
+### 切换失败时回滚
+
+把 `campus_https_backup` 设为上面打印的真实备份目录。仅恢复这三个配置文件及旧 Web 镜像，再重建 Web/API；不启动初始化任务、不删除卷、不改数据库。若 HTTPS 未完成，HTTP 仅用于恢复与排查，仍需完成可信 HTTPS 后再分享登录链接。
+
+```bash
+cp "$campus_https_backup/Caddyfile" deploy/demo/Caddyfile
+cp "$campus_https_backup/web.Dockerfile" deploy/demo/web.Dockerfile
+cp "$campus_https_backup/demo.env" deploy/demo/demo.env
+chmod 600 deploy/demo/demo.env
+sudo docker tag "$(cat "$campus_https_backup/web-image-id")" campus-public-demo-web:local
+sudo docker compose --env-file deploy/demo/demo.env -f deploy/demo/compose.yaml up -d --no-deps --no-build --pull never --force-recreate web api
+curl --fail http://43.129.170.247/api/demo/health
+```
 
 ## 真实 AI 限制
 
